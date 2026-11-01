@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: 2cbazar
+      POSTGRES_USER: 2cbazar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U 2cbazar -d 2cbazar"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - product_uploads:/app/uploads
+    environment:
+      DB_HOST: db
+      DB_USER: 2cbazar
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: 2cbazar
+    depends_on:
+      db:
+        condition: service_healthy
+
+  marketplace:
+    build:
+      context: ./frontend\marketplace
+    restart: unless-stopped
+
+  seller:
+    build:
+      context: ./frontend\seller
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx\nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - marketplace
+      - seller
+
+volumes:
+  postgres_data:
+  product_uploads:
