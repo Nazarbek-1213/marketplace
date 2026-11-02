@@ -97,7 +97,7 @@ function FregeChat() {
         window.Frege.mount({
           el: "#frege-chat",
           project: "01a198fc-f829-70c7-ad66-434b3f071ece",
-          stage: "staging",
+          stage: "seller",
           agent: "01a19a42-7575-7c8b-bcf9-fd74573a041c",
         });
         setInitialized(true);
