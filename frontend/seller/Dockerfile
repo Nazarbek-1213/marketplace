@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
+ARG VITE_FREGE_API_KEY
 RUN npm run build
 
 FROM nginx:1.27-alpine

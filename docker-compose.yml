@@ -37,6 +37,8 @@ services:
   seller:
     build:
       context: ./frontend\seller
+      args:
+        VITE_FREGE_API_KEY: ${VITE_FREGE_API_KEY:-}
     restart: unless-stopped
 
   nginx:
