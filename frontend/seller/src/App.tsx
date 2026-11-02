@@ -75,12 +75,16 @@ function loadFregeScript(): Promise<void> {
 }
 
 function FregeChat() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!isOpen || initialized) return;
+
     const apiKey = import.meta.env.VITE_FREGE_API_KEY;
     if (!apiKey) {
-      setError("Frege chat sozlanmagan: VITE_FREGE_API_KEY kalitini kiriting.");
+      setError("Chat sozlanmagan. Serverdagi .env fayliga VITE_FREGE_API_KEY kalitini kiriting va seller saytini qayta yig‘ing.");
       return;
     }
 
@@ -96,6 +100,7 @@ function FregeChat() {
           stage: "staging",
           agent: "01a19a42-7575-7c8b-bcf9-fd74573a041c",
         });
+        setInitialized(true);
       })
       .catch((reason: unknown) => {
         if (active) {
@@ -106,11 +111,30 @@ function FregeChat() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [initialized, isOpen]);
 
   return (
-    <div id="frege-chat" className="frege-chat">
-      {error && <div className="frege-chat-error" role="status">{error}</div>}
+    <div className="frege-chat-widget">
+      {isOpen && (
+        <section className="frege-chat-panel" aria-label="Sotuvchilar uchun Frege chat">
+          <div className="frege-chat-heading">
+            <strong>Sotuvchi yordamchisi</strong>
+            <button type="button" onClick={() => setIsOpen(false)} aria-label="Chatni yopish">×</button>
+          </div>
+          <div id="frege-chat" className="frege-chat">
+            {error && <div className="frege-chat-error" role="status">{error}</div>}
+          </div>
+        </section>
+      )}
+      <button
+        type="button"
+        className="frege-chat-toggle"
+        onClick={() => setIsOpen((open) => !open)}
+        aria-expanded={isOpen}
+        aria-label={isOpen ? "Chatni yopish" : "Sotuvchi yordam chatini ochish"}
+      >
+        {isOpen ? "×" : "Chat"}
+      </button>
     </div>
   );
 }
