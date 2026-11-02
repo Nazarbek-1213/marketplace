@@ -79,3 +79,6 @@
 .image-preview{width:72px;height:72px;position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#f5f3f8}
 .image-preview img{width:100%;height:100%;object-fit:cover}
 .image-preview button{position:absolute;top:4px;right:4px;width:21px;height:21px;border:0;border-radius:50%;background:#251d31cc;color:#fff;font-size:16px;line-height:1}
+.frege-chat{position:fixed;right:24px;bottom:24px;z-index:10;width:min(380px,calc(100vw - 32px));height:min(520px,calc(100vh - 32px));}
+.frege-chat-error{padding:14px;border:1px solid #e6d9fc;border-radius:12px;background:#fff;color:#55416d;font-size:12px;line-height:1.5;box-shadow:0 12px 36px #28174224}
+@media(max-width:650px){.frege-chat{right:16px;bottom:16px;width:calc(100vw - 32px);height:min(520px,calc(100vh - 32px))}}

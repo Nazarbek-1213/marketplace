@@ -1,6 +1,8 @@
+import base64
+import binascii
+import uuid
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
-import uuid
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -16,6 +18,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import Order, OrderItem, Product, ProductReview, User
 from app.schemas import (
+    Base64ImageUpload,
     OrderCreate,
     OrderView,
     ProductCreate,
@@ -29,6 +32,7 @@ from app.schemas import (
 
 router = APIRouter(tags=["marketplace"])
 MAX_IMAGE_SIZE = 5 * 1024 * 1024
+MAX_JSON_UPLOAD_SIZE = 11 * 1024 * 1024
 IMAGE_SIGNATURES = {
     "image/jpeg": (b"\xff\xd8\xff", ".jpg"),
     "image/png": (b"\x89PNG\r\n\x1a\n", ".png"),
@@ -46,6 +50,17 @@ def _is_supported_image(content: bytes, content_type: str) -> bool:
             return image.format in {"JPEG", "PNG", "WEBP"}
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         return False
+
+
+def _save_product_images(images: list[tuple[bytes, str]]) -> dict[str, list[str]]:
+    upload_directory = Path(settings.upload_dir)
+    upload_directory.mkdir(parents=True, exist_ok=True)
+    image_urls = []
+    for content, extension in images:
+        filename = f"{uuid.uuid4().hex}{extension}"
+        (upload_directory / filename).write_bytes(content)
+        image_urls.append(f"/uploads/{filename}")
+    return {"image_urls": image_urls}
 
 
 @router.post("/api/seller/uploads", status_code=201)
@@ -76,14 +91,44 @@ async def upload_product_images(
             )
         images.append((content, IMAGE_SIGNATURES[content_type][1]))
 
-    upload_directory = Path(settings.upload_dir)
-    upload_directory.mkdir(parents=True, exist_ok=True)
-    image_urls = []
-    for content, extension in images:
-        filename = f"{uuid.uuid4().hex}{extension}"
-        (upload_directory / filename).write_bytes(content)
-        image_urls.append(f"/uploads/{filename}")
-    return {"image_urls": image_urls}
+    return _save_product_images(images)
+
+
+@router.post("/api/seller/uploads/base64", status_code=201)
+def upload_product_images_base64(
+    data: Base64ImageUpload,
+    seller: User = Depends(require_role("seller")),
+) -> dict[str, list[str]]:
+    del seller
+    images: list[tuple[bytes, str]] = []
+    total_size = 0
+    for image in data.images:
+        try:
+            content = base64.b64decode(image.content_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Rasm ma’lumoti yaroqli Base64 formatida emas.",
+            ) from exc
+        if len(content) > MAX_IMAGE_SIZE:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                "Har bir rasm hajmi 5 MB dan oshmasligi kerak.",
+            )
+        total_size += len(content)
+        if total_size > MAX_JSON_UPLOAD_SIZE:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                "Yuklangan rasmlarning jami hajmi 11 MB dan oshmasligi kerak.",
+            )
+        if not _is_supported_image(content, image.content_type):
+            raise HTTPException(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                "Faqat JPEG, PNG yoki WebP formatidagi haqiqiy rasmlarni yuklang.",
+            )
+        images.append((content, IMAGE_SIGNATURES[image.content_type][1]))
+
+    return _save_product_images(images)
 
 
 @router.get("/api/products", response_model=list[ProductView])

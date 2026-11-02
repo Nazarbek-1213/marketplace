@@ -42,6 +42,19 @@ class SellerLogin(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class Base64Image(BaseModel):
+    content_type: Literal["image/jpeg", "image/png", "image/webp"]
+    content_base64: str = Field(
+        min_length=1,
+        max_length=6_990_508,
+        json_schema_extra={"format": "byte"},
+    )
+
+
+class Base64ImageUpload(BaseModel):
+    images: list[Base64Image] = Field(min_length=1, max_length=3)
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 

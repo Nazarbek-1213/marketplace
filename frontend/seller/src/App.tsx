@@ -38,6 +38,83 @@ type Analytics = {
   top_products: { product_id: number; name: string; units_sold: number; revenue: string }[];
 };
 type AuthMode = "login" | "register";
+type FregeEmbed = {
+  setApiKey(apiKey: string): void;
+  mount(options: {
+    el: string;
+    project: string;
+    stage: string;
+    agent: string;
+  }): void;
+};
+
+declare global {
+  interface Window {
+    Frege?: FregeEmbed;
+  }
+}
+
+let fregeScriptPromise: Promise<void> | null = null;
+
+function loadFregeScript(): Promise<void> {
+  if (window.Frege) return Promise.resolve();
+  if (!fregeScriptPromise) {
+    fregeScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://mcp.frege.uz/v1/embed.js";
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        fregeScriptPromise = null;
+        reject(new Error("Frege chat skriptini yuklab bo‘lmadi."));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return fregeScriptPromise;
+}
+
+function FregeChat() {
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const apiKey = import.meta.env.VITE_FREGE_API_KEY;
+    if (!apiKey) {
+      setError("Frege chat sozlanmagan: VITE_FREGE_API_KEY kalitini kiriting.");
+      return;
+    }
+
+    let active = true;
+    void loadFregeScript()
+      .then(() => {
+        if (!active) return;
+        if (!window.Frege) throw new Error("Frege chat API mavjud emas.");
+        window.Frege.setApiKey(apiKey);
+        window.Frege.mount({
+          el: "#frege-chat",
+          project: "01a198fc-f829-70c7-ad66-434b3f071ece",
+          stage: "staging",
+          agent: "01a19a42-7575-7c8b-bcf9-fd74573a041c",
+        });
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(reason instanceof Error ? reason.message : "Frege chatni yuklab bo‘lmadi.");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return (
+    <div id="frege-chat" className="frege-chat">
+      {error && <div className="frege-chat-error" role="status">{error}</div>}
+    </div>
+  );
+}
+
 const formatPrice = (price: string | number) =>
   `${Number(price).toLocaleString("uz-UZ")} so‘m`;
 
@@ -459,6 +536,7 @@ export default function App() {
         {error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setShowProductForm(false)}>Bekor qilish</button><button className="add-button" disabled={busy}>{busy ? "Saqlanmoqda..." : "Mahsulotni saqlash →"}</button></div>
       </form></div>}
       {notice && <div className="toast">{notice}<button onClick={() => setNotice("")}>×</button></div>}
+      <FregeChat />
     </div>
   );
 }

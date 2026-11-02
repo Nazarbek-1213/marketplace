@@ -1,3 +1,4 @@
+import base64
 from io import BytesIO
 import os
 from pathlib import Path
@@ -105,6 +106,34 @@ class MarketplaceFlowTests(unittest.TestCase):
                 self.assertTrue(
                     all((Path(upload_dir) / url.rsplit("/", 1)[1]).is_file() for url in image_urls)
                 )
+
+                json_upload = self.client.post(
+                    "/api/seller/uploads/base64",
+                    headers=headers,
+                    json={
+                        "images": [
+                            {
+                                "content_type": "image/png",
+                                "content_base64": base64.b64encode(image_bytes).decode("ascii"),
+                            }
+                        ]
+                    },
+                )
+                self.assertEqual(json_upload.status_code, 201, json_upload.text)
+                json_image_url = json_upload.json()["image_urls"][0]
+                self.assertTrue(
+                    (Path(upload_dir) / json_image_url.rsplit("/", 1)[1]).is_file()
+                )
+                invalid_base64 = self.client.post(
+                    "/api/seller/uploads/base64",
+                    headers=headers,
+                    json={
+                        "images": [
+                            {"content_type": "image/png", "content_base64": "not base64!"}
+                        ]
+                    },
+                )
+                self.assertEqual(invalid_base64.status_code, 422, invalid_base64.text)
 
                 product = self.client.post(
                     "/api/seller/products",

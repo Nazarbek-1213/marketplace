@@ -1,0 +1,2166 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "2cbazar API",
+    "version": "1.0.0",
+    "description": "2cbazar marketplace and seller API.\n\nAUTHENTICATION QUICK START\n1. Buyers request and verify an email code. Sellers register with an email code or sign in with username and password.\n2. Successful buyer verification, seller registration, and seller login return access_token, refresh_token, token_type, and access_expires_in. Save both tokens securely.\n3. Send access_token on protected calls as `Authorization: Bearer <access_token>`. In an API client, authorize with the access token only; the client adds the Bearer scheme. Never use refresh_token as the Bearer credential.\n4. Renew before access expires: POST `/api/auth/refresh` with JSON `{ \"refresh_token\": \"<current refresh token>\" }`. This is a token exchange, not request signing: do not select Signature (HMAC), provide a signing key, or send Authorization. The JWT is already signed by the server. Save BOTH returned tokens, replacing the old pair; refresh tokens are single-use and rotate every time. The response field access_expires_in is the access lifetime in seconds (default 30 days); refresh tokens last 60 days by default. For client auto-renewal, use `/api/auth/refresh`, supply the currently stored/captured refresh_token as the body field (not a fixed value and not HMAC), capture response JSON `access_token` and `refresh_token` into the matching token slots, and renew based on access_expires_in (30 days with defaults).\n5. Sign out with POST `/api/auth/logout` and the latest refresh token. Delete local tokens too; the existing access token can remain valid until its own expiry.\n\nSERVER SETUP: production requires separate JWT_SECRET and OTP_SECRET values, each at least 32 characters, plus SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD, and SMTP_FROM. Generate/store these on the server. They are never sent to these API operations and JWT_SECRET must never be pasted into a client signing-key field. The current Nginx configuration serves HTTP only; configure TLS/HTTPS before sending passwords or tokens over a public network. In local development without SMTP, the code is written to the backend log. Email codes expire after 10 minutes, allow at most five attempts, and can be requested once per minute.\n\nBuyer flow: `/api/auth/marketplace/request-code` -> read email -> `/api/auth/marketplace/verify` -> save the returned pair. First successful verification creates a buyer account automatically.\n\nSeller flow: `/api/auth/seller/request-code` -> read email -> `/api/auth/seller/register` with code, username and password; existing sellers use `/api/auth/seller/login`. Successful registration/login issues the token pair immediately.\n\nErrors use FastAPI JSON `detail`; validation errors use `HTTPValidationError`. OpenAPI version is 3.0.3. JSON/Base64 image upload is included for clients unable to send multipart; the original multipart upload endpoint is intentionally omitted because some API tools cannot invoke multipart requests."
+  },
+  "paths": {
+    "/api/auth/marketplace/request-code": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Request a buyer sign-in code",
+        "operationId": "request_marketplace_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRequest"
+              },
+              "examples": {
+                "buyer_email": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "email": "buyer@example.com"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Code request accepted. The response contains a message only; it does NOT return the email or verification code. Keep the email entered for this step and include that same email explicitly in the next request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                },
+                "examples": {
+                  "accepted": {
+                    "summary": "Confirmation only; email and code are not returned.",
+                    "value": {
+                      "message": "Tasdiqlash kodi emailingizga yuborildi."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "description": "Buyer Sign-In, step 1 of 2. Send `{ \"email\": \"buyer@example.com\" }`. The response only confirms the request; it does not include email or code. Keep the email value you entered. In the next step (`/api/auth/marketplace/verify`), explicitly include the same email in the request body as well as the six-digit code received by email. In Frege, add/map the `email` body field on that next recipe step; mapping only `code` will fail validation. The code expires in 10 minutes; at most five attempts are allowed and a new code can be requested once per minute. In local development without SMTP, find the code in the backend log.",
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/auth/marketplace/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Verify a buyer sign-in code",
+        "operationId": "verify_marketplace_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailVerify"
+              },
+              "examples": {
+                "buyer_code": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "email": "buyer@example.com",
+                    "code": "123456"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Code verified and buyer signed in. Save both tokens; first-time buyers are created automatically.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "description": "Buyer sign-in, step 2 of 2. The JSON body MUST include BOTH `email` and `code`. Enter/map the same email address used in `/api/auth/marketplace/request-code` into the `email` body field, and enter the six-digit code received by email into `code`. The request-code response contains only a message and does not provide an email value to capture. In Frege, add the missing `email` body field to this recipe step; sending only `{ \"code\": \"123456\" }` returns HTTP 422 with `body.email` required. No token or Authorization header is needed. A valid code is single-use; first verification creates a buyer account if needed. On HTTP 200, save BOTH `access_token` and `refresh_token`. Use only `access_token` as the Bearer credential. If the email belongs to a seller account, HTTP 409 is returned; use seller sign-in.",
+        "security": [],
+        "parameters": [],
+        "x-frege-auth-op": true
+      }
+    },
+    "/api/auth/seller/request-code": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Request a seller registration code",
+        "operationId": "request_seller_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRequest"
+              },
+              "examples": {
+                "seller_email": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "email": "seller@example.com"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Code request accepted. The response contains a message only; it does NOT return the email or verification code. Keep the email entered for this step and include that same email explicitly in the next request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                },
+                "examples": {
+                  "accepted": {
+                    "summary": "Confirmation only; email and code are not returned.",
+                    "value": {
+                      "message": "Tasdiqlash kodi emailingizga yuborildi."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "description": "Seller Registration, step 1 of 2. Send `{ \"email\": \"seller@example.com\" }`. The response only confirms the request; it does not include email or code. Keep the email value you entered. In the next step (`/api/auth/seller/register`), explicitly include the same email in the request body as well as the six-digit code received by email. In Frege, add/map the `email` body field on that next recipe step; mapping only `code` will fail validation. The code expires in 10 minutes; at most five attempts are allowed and a new code can be requested once per minute. In local development without SMTP, find the code in the backend log.",
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/auth/seller/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register a seller account",
+        "operationId": "register_seller",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SellerRegistration"
+              },
+              "examples": {
+                "seller_registration": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "email": "seller@example.com",
+                    "code": "123456",
+                    "username": "my_shop",
+                    "password": "example-password-123"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Seller created and signed in. Save both returned tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "description": "Seller registration, step 2 of 2. Send the email again (the request-code response does not echo it), the matching six-digit code, a unique username, and a password. Username must be 3-32 ASCII letters, digits, or underscores; password must be 10-128 characters. No existing token or Authorization header is needed. On HTTP 201 the account is created and signed in; save BOTH tokens. Use `access_token` as Bearer credential and retain the latest `refresh_token` for renewal/logout. Duplicate email or username returns HTTP 409.",
+        "security": [],
+        "parameters": [],
+        "x-frege-auth-op": true
+      }
+    },
+    "/api/auth/seller/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Sign in as a seller",
+        "operationId": "login_seller",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SellerLogin"
+              },
+              "examples": {
+                "seller_login": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "username": "my_shop",
+                    "password": "example-password-123"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Seller signed in. Save both returned tokens.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "description": "Sign in to an existing seller account using its username and password. No token or Authorization header is needed. On HTTP 200, save both returned token strings. Use `access_token` as Bearer credential for seller endpoints; retain `refresh_token` for `/api/auth/refresh` and `/api/auth/logout`. Invalid credentials return HTTP 401.",
+        "security": [],
+        "parameters": [],
+        "x-frege-auth-op": true
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Rotate the token pair",
+        "operationId": "refresh_tokens",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              },
+              "examples": {
+                "rotate_tokens": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "refresh_token": "<latest-refresh-token-from-login-or-previous-refresh>"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token rotation succeeded. The submitted refresh token is revoked; immediately replace both saved token values with this response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenPair"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "description": "Renew an expired or expiring access token. Send the CURRENT refresh token in JSON: `{ \"refresh_token\": \"<current refresh token>\" }`. Do not add Authorization. This is not request signing: do not select Signature (HMAC), enter JWT_SECRET as a signing key, or calculate a signature. The refresh token is already a signed JWT issued by this API. On HTTP 200, read `access_token` and `refresh_token` from the response and replace BOTH stored values. Refresh tokens rotate and are single-use; reusing the old token returns HTTP 401. For an API client's auto-renewal settings: choose this endpoint; map body field `refresh_token` from the current captured/stored refresh-token credential (not a fixed value and not HMAC); map response JSON `access_token` and `refresh_token` to their matching token slots. Renew using `access_expires_in` from the latest token response (default 30 days); refresh tokens default to 60 days. If refresh fails or expires, sign in again.",
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke a refresh token",
+        "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              },
+              "examples": {
+                "revoke_refresh_token": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "refresh_token": "<latest-refresh-token>"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Refresh token revoked. There is no response body; delete local token state too."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "description": "Sign out by sending the LATEST refresh token as JSON: `{ \"refresh_token\": \"<current refresh token>\" }`. No Authorization header is required. HTTP 204 with an empty body means the refresh token is revoked. The access token is not revoked and may remain valid until expiry, so also delete locally stored access/refresh tokens and user state.",
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Get the current user",
+        "operationId": "get_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Current buyer or seller profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "description": "Get the currently signed-in buyer or seller profile. Send access_token in `Authorization: Bearer <access_token>`; never send refresh_token here. If access expires, exchange the stored refresh token at `/api/auth/refresh`, save both rotated tokens, then retry with the new access token.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Update the current user's profile",
+        "operationId": "update_me",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserProfileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          }
+        },
+        "description": "Update the signed-in user's profile. Send access_token as a Bearer credential and a JSON object containing only fields to change. Omitted fields remain unchanged; nullable fields may be set to null to clear them. If access expires, rotate both tokens at `/api/auth/refresh` and retry.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/products": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List available products",
+        "operationId": "list_products",
+        "parameters": [
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "title": "Search",
+              "nullable": true
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 80,
+              "title": "Category",
+              "nullable": true
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 24,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductView"
+                  },
+                  "title": "Response List Products Api Products Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Lists in-stock products, newest first. Search matches product names; optional category filtering and limit/offset pagination are supported.",
+        "security": []
+      }
+    },
+    "/api/categories": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "List available categories",
+        "operationId": "list_categories",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response List Categories Api Categories Get"
+                }
+              }
+            }
+          }
+        },
+        "description": "Returns the distinct categories that currently have in-stock products.",
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/products/{product_id}": {
+      "get": {
+        "tags": [
+          "catalog"
+        ],
+        "summary": "Get a product",
+        "operationId": "get_product",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "description": "Returns an in-stock product by ID.",
+        "security": []
+      }
+    },
+    "/api/products/{product_id}/reviews": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "List product reviews",
+        "operationId": "list_product_reviews",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewView"
+                  },
+                  "title": "Response List Product Reviews Api Products  Product Id  Reviews Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "description": "Returns public reviews for a product, newest first.",
+        "security": []
+      }
+    },
+    "/api/reviews/mine": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "List my reviews",
+        "operationId": "list_my_reviews",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewView"
+                  },
+                  "title": "Response List My Reviews Api Reviews Mine Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        },
+        "description": "Returns reviews written by the authenticated buyer, newest first.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/reviews": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Review a purchased product",
+        "operationId": "create_product_review",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          }
+        },
+        "description": "Creates one review per buyer and product. The buyer must have purchased the product; ratings are from 1 to 5.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/seller/products": {
+      "get": {
+        "tags": [
+          "seller"
+        ],
+        "summary": "List my products",
+        "operationId": "list_seller_products",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductView"
+                  },
+                  "title": "Response List Seller Products Api Seller Products Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        },
+        "description": "Returns products belonging to the authenticated seller.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "seller"
+        ],
+        "summary": "Create a product",
+        "operationId": "create_product",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        },
+        "description": "Creates a product for the authenticated seller. A product can have up to three image URLs.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/seller/analytics": {
+      "get": {
+        "tags": [
+          "seller"
+        ],
+        "summary": "Get seller sales analytics",
+        "operationId": "get_seller_analytics",
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "weekly",
+                "monthly"
+              ],
+              "type": "string",
+              "default": "weekly",
+              "title": "Period"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SellerAnalytics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        },
+        "description": "Returns sales totals for the last 7 days (weekly) or 30 days (monthly), compared with the immediately preceding period. Dates use Uzbekistan time.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/orders": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Place an order",
+        "operationId": "place_order",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "409": {
+            "$ref": "#/components/responses/409"
+          }
+        },
+        "description": "Places an order for the authenticated buyer and reduces stock atomically. Quantities for duplicate product IDs are combined; insufficient stock is rejected.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "List my orders",
+        "operationId": "list_orders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrderView"
+                  },
+                  "title": "Response List Orders Api Orders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          }
+        },
+        "description": "Returns orders placed by the authenticated buyer, newest first.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Check API health",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Api Health Get"
+                }
+              }
+            }
+          }
+        },
+        "description": "Returns a simple health status. Does not require authentication.",
+        "tags": [
+          "system"
+        ],
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/seller/uploads/base64": {
+      "post": {
+        "tags": [
+          "seller"
+        ],
+        "summary": "Upload product images (JSON/base64)",
+        "operationId": "upload_product_images_json",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Base64ImageUpload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "title": "Response Upload Product Images Base64 Api Seller Uploads Base64 Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "413": {
+            "$ref": "#/components/responses/413"
+          },
+          "415": {
+            "$ref": "#/components/responses/415"
+          }
+        },
+        "description": "Uploads one to three JPEG, PNG, or WebP images as Base64-encoded JSON for clients that cannot send multipart requests. Each image is limited to 5 MiB and the combined decoded image size is limited to 11 MiB. The content_type must match the actual image. The existing multipart endpoint at /api/seller/uploads remains available to clients that support multipart/form-data.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EmailRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Buyer or seller email address. Use the same address when submitting its verification code."
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "EmailRequest"
+      },
+      "EmailVerify": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Exact email address to which this flow sent the code."
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "description": "Six-digit, one-time code from email. Expires after 10 minutes; five verification attempts maximum."
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "code"
+        ],
+        "title": "EmailVerify"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "OrderCreate": {
+        "properties": {
+          "delivery_address": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Delivery Address"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderLineInput"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "delivery_address",
+          "items"
+        ],
+        "title": "OrderCreate"
+      },
+      "OrderLineInput": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "exclusiveMinimum": true,
+            "title": "Product Id",
+            "minimum": 0.0
+          },
+          "quantity": {
+            "type": "integer",
+            "maximum": 100.0,
+            "exclusiveMinimum": true,
+            "title": "Quantity",
+            "minimum": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "quantity"
+        ],
+        "title": "OrderLineInput"
+      },
+      "OrderLineView": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name"
+          },
+          "quantity": {
+            "type": "integer",
+            "title": "Quantity"
+          },
+          "unit_price": {
+            "type": "string",
+            "title": "Unit Price"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "product_name",
+          "quantity",
+          "unit_price"
+        ],
+        "title": "OrderLineView"
+      },
+      "OrderView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "total": {
+            "type": "string",
+            "title": "Total"
+          },
+          "delivery_address": {
+            "type": "string",
+            "title": "Delivery Address"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OrderLineView"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "total",
+          "delivery_address",
+          "created_at",
+          "items"
+        ],
+        "title": "OrderView"
+      },
+      "ProductCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000,
+            "title": "Description",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Category"
+          },
+          "image_url": {
+            "type": "string",
+            "title": "Image Url",
+            "nullable": true
+          },
+          "image_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Image Urls"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": true,
+                "minimum": 0.0
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Price"
+          },
+          "stock": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Stock"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "category",
+          "price",
+          "stock"
+        ],
+        "title": "ProductCreate"
+      },
+      "ProductView": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 180,
+            "minLength": 2,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 10000,
+            "title": "Description",
+            "default": ""
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Category"
+          },
+          "image_url": {
+            "type": "string",
+            "title": "Image Url",
+            "nullable": true
+          },
+          "image_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Image Urls"
+          },
+          "price": {
+            "type": "string",
+            "title": "Price"
+          },
+          "stock": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Stock"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "seller_id": {
+            "type": "integer",
+            "title": "Seller Id"
+          },
+          "average_rating": {
+            "type": "number",
+            "title": "Average Rating",
+            "default": 0
+          },
+          "review_count": {
+            "type": "integer",
+            "title": "Review Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "category",
+          "price",
+          "stock",
+          "id",
+          "seller_id"
+        ],
+        "title": "ProductView"
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token",
+            "description": "Latest refresh token from login/register/verify or the previous refresh response. Single-use. For auto-renew, map from the stored/captured refresh credential; do not HMAC-sign it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest",
+        "description": "JSON body for refresh/logout. This is the issued refresh token value, not an HMAC signature or server secret."
+      },
+      "ReviewCreate": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "exclusiveMinimum": true,
+            "title": "Product Id",
+            "minimum": 0.0
+          },
+          "rating": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rating"
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "rating",
+          "comment"
+        ],
+        "title": "ReviewCreate"
+      },
+      "ReviewView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name"
+          },
+          "rating": {
+            "type": "integer",
+            "title": "Rating"
+          },
+          "comment": {
+            "type": "string",
+            "title": "Comment"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "product_id",
+          "product_name",
+          "rating",
+          "comment",
+          "author",
+          "created_at"
+        ],
+        "title": "ReviewView"
+      },
+      "SalesDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "revenue": {
+            "type": "string",
+            "title": "Revenue"
+          },
+          "orders": {
+            "type": "integer",
+            "title": "Orders"
+          },
+          "units_sold": {
+            "type": "integer",
+            "title": "Units Sold"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "revenue",
+          "orders",
+          "units_sold"
+        ],
+        "title": "SalesDay"
+      },
+      "SellerAnalytics": {
+        "properties": {
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "start_date": {
+            "type": "string",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "title": "End Date"
+          },
+          "revenue": {
+            "type": "string",
+            "title": "Revenue"
+          },
+          "orders": {
+            "type": "integer",
+            "title": "Orders"
+          },
+          "units_sold": {
+            "type": "integer",
+            "title": "Units Sold"
+          },
+          "previous_revenue": {
+            "type": "string",
+            "title": "Previous Revenue"
+          },
+          "previous_orders": {
+            "type": "integer",
+            "title": "Previous Orders"
+          },
+          "previous_units_sold": {
+            "type": "integer",
+            "title": "Previous Units Sold"
+          },
+          "daily": {
+            "items": {
+              "$ref": "#/components/schemas/SalesDay"
+            },
+            "type": "array",
+            "title": "Daily"
+          },
+          "top_products": {
+            "items": {
+              "$ref": "#/components/schemas/TopProduct"
+            },
+            "type": "array",
+            "title": "Top Products"
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "days",
+          "start_date",
+          "end_date",
+          "revenue",
+          "orders",
+          "units_sold",
+          "previous_revenue",
+          "previous_orders",
+          "previous_units_sold",
+          "daily",
+          "top_products"
+        ],
+        "title": "SellerAnalytics"
+      },
+      "SellerLogin": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 3,
+            "title": "Username",
+            "description": "Username chosen during seller registration."
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "description": "Seller account password.",
+            "format": "password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "SellerLogin"
+      },
+      "SellerRegistration": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Email verified by `/api/auth/seller/request-code`."
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "description": "Six-digit seller registration code from this email."
+          },
+          "username": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 3,
+            "pattern": "^[a-zA-Z0-9_]+$",
+            "title": "Username",
+            "description": "Unique seller username: 3-32 ASCII letters, digits, or underscores."
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 10,
+            "title": "Password",
+            "description": "Seller password, 10-128 characters. Configure HTTPS before sending credentials over a public network; the current Nginx configuration serves HTTP only.",
+            "format": "password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "code",
+          "username",
+          "password"
+        ],
+        "title": "SellerRegistration"
+      },
+      "TokenPair": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token",
+            "description": "Shorter-lived signed JWT. Send as `Authorization: Bearer <access_token>` to protected endpoints. Do not send as refresh request body."
+          },
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token",
+            "description": "Longer-lived, single-use signed JWT. Store securely; send as JSON field `refresh_token` to `/api/auth/refresh` or `/api/auth/logout`. Replace it after every successful refresh."
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer",
+            "description": "Authorization scheme for access_token; use Bearer."
+          },
+          "access_expires_in": {
+            "type": "integer",
+            "title": "Access Expires In",
+            "description": "Access-token lifetime in seconds. Use to schedule renewal; default is 2592000 seconds (30 days)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "access_expires_in"
+        ],
+        "title": "TokenPair",
+        "description": "Returned after buyer verification, seller registration/login, and successful refresh. Persist both tokens: access_token authorizes API calls; refresh_token renews or revokes the session."
+      },
+      "TopProduct": {
+        "properties": {
+          "product_id": {
+            "type": "integer",
+            "title": "Product Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "units_sold": {
+            "type": "integer",
+            "title": "Units Sold"
+          },
+          "revenue": {
+            "type": "string",
+            "title": "Revenue"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "name",
+          "units_sold",
+          "revenue"
+        ],
+        "title": "TopProduct"
+      },
+      "UserProfileUpdate": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Full Name",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 24,
+            "title": "Phone",
+            "nullable": true
+          },
+          "gender": {
+            "type": "string",
+            "enum": [
+              "male",
+              "female",
+              "prefer_not_to_say"
+            ],
+            "title": "Gender",
+            "nullable": true
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Birth Date",
+            "nullable": true
+          }
+        },
+        "type": "object",
+        "title": "UserProfileUpdate"
+      },
+      "UserView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username",
+            "nullable": true
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name",
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "nullable": true
+          },
+          "gender": {
+            "type": "string",
+            "title": "Gender",
+            "nullable": true
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Birth Date",
+            "nullable": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "username",
+          "role",
+          "full_name",
+          "phone",
+          "gender",
+          "birth_date"
+        ],
+        "title": "UserView"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ]
+      },
+      "Base64Image": {
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ],
+            "title": "Content Type"
+          },
+          "content_base64": {
+            "type": "string",
+            "maxLength": 6990508,
+            "minLength": 1,
+            "format": "byte",
+            "title": "Content Base64"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content_type",
+          "content_base64"
+        ],
+        "title": "Base64Image"
+      },
+      "Base64ImageUpload": {
+        "properties": {
+          "images": {
+            "items": {
+              "$ref": "#/components/schemas/Base64Image"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Images"
+          }
+        },
+        "type": "object",
+        "required": [
+          "images"
+        ],
+        "title": "Base64ImageUpload"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Use the access_token returned by buyer email verification, seller registration, or seller login. Send as `Authorization: Bearer <access_token>` on protected calls. Do not use refresh_token here. Public auth and refresh operations need no Authorization header. JWT_SECRET is a server-side signing secret; never enter it here or use it to sign requests."
+      }
+    },
+    "responses": {
+      "400": {
+        "description": "The request could not be completed (for example, an invalid or expired email code).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "401": {
+        "description": "Authentication failed or the supplied access/refresh token is invalid or expired.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "403": {
+        "description": "The account is not permitted to perform this operation or does not have the required role.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "404": {
+        "description": "The requested resource was not found.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "409": {
+        "description": "The request conflicts with current state (for example, a duplicate account/review or insufficient stock).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "413": {
+        "description": "The uploaded image exceeds the 5 MiB per-image limit.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "415": {
+        "description": "The uploaded file is not a supported JPEG, PNG, or WebP image.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "429": {
+        "description": "An email-code resend or verification-attempt limit was reached.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "503": {
+        "description": "The email service is temporarily unavailable.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "https://market.2cnzrbk.uz",
+      "description": "Marketplace and API (production)"
+    },
+    {
+      "url": "https://seller.2cnzrbk.uz",
+      "description": "Seller portal and API (production)"
+    },
+    {
+      "url": "http://localhost:8000",
+      "description": "Local API development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "auth",
+      "description": "Buyer and seller registration, sign-in, tokens, and profiles."
+    },
+    {
+      "name": "catalog",
+      "description": "Public product catalog and categories."
+    },
+    {
+      "name": "reviews",
+      "description": "Public product reviews and buyer review history."
+    },
+    {
+      "name": "seller",
+      "description": "Seller-only image uploads, product management, and analytics."
+    },
+    {
+      "name": "orders",
+      "description": "Buyer order placement and order history."
+    },
+    {
+      "name": "system",
+      "description": "API health check."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}
