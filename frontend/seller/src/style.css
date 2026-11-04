@@ -88,3 +88,29 @@
 .frege-chat{flex:1;min-height:0;height:520px}
 .frege-chat-error{padding:14px;border:1px solid #e6d9fc;border-radius:12px;background:#fff;color:#55416d;font-size:12px;line-height:1.5;box-shadow:0 12px 36px #28174224}
 @media(max-width:650px){.frege-chat-widget{right:16px;bottom:16px}.frege-chat-panel{height:min(570px,calc(100vh - 92px));width:calc(100vw - 32px)}}
+.product-rating{color:#bd8426;font-size:9px;white-space:nowrap}
+.product-rating small{color:#8f8996}
+.edit-product-button,.reply-button{border:0;border-radius:6px;background:#f1ebfb;color:#6942b8;padding:7px 9px;font-size:8px;font-weight:700;white-space:nowrap}
+.seller-reviews-panel{margin-top:16px;overflow:hidden;border:1px solid #efecf2;border-radius:12px;background:#fff}
+.seller-review-products{padding:0 16px}
+.seller-review-product{padding:15px 0;border-bottom:1px solid #eeeaf2}
+.seller-review-product:last-child{border-bottom:0}
+.seller-review-product-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.seller-review-product-heading h3{margin:0 0 4px;font:700 11px Manrope}
+.seller-review-product-heading>div>small{color:#938d99;font-size:8px}
+.seller-review-product-heading>strong{color:#bd8426;font-size:10px;white-space:nowrap}
+.seller-review-product-heading>strong small{color:#8f8996;font-size:8px;font-weight:400}
+.seller-no-reviews{margin:12px 0 2px;color:#938d99;font-size:9px}
+.seller-review-card{max-width:760px;margin:12px 0 0 9px;padding:12px;border:1px solid #efecf2;border-radius:9px;background:#fdfcff}
+.seller-review-card-heading{display:flex;justify-content:space-between;gap:8px}
+.seller-review-card-heading b{font-size:9px}
+.seller-review-card-heading span{color:#c28a2f;font-size:9px}
+.seller-review-card>small{display:block;margin-top:4px;color:#938d99;font-size:8px}
+.seller-review-card>p{margin:9px 0;color:#514a59;font-size:9px;line-height:1.55;white-space:pre-wrap;overflow-wrap:anywhere}
+.seller-review-card form{display:flex;align-items:flex-end;gap:9px}
+.seller-review-card label{display:grid;flex:1;gap:5px;color:#77717f;font-size:8px;font-weight:600}
+.seller-review-card textarea{min-height:52px;padding:8px;border:1px solid #e8e3ee;border-radius:7px;resize:vertical;font-size:9px}
+.seller-review-card .reply-button{height:32px}
+.seller-review-card .reply-button:disabled{opacity:.55;cursor:not-allowed}
+@media(min-width:901px){.stats-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:650px){.seller-review-products{padding:0 10px}.seller-review-card{margin-left:0;padding:9px}.seller-review-card form{align-items:stretch;flex-direction:column}.seller-review-card .reply-button{align-self:flex-end}.seller-review-product-heading h3{font-size:9px}}

@@ -115,4 +115,6 @@ class ProductReview(Base):
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
     rating: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str] = mapped_column(Text)
+    seller_reply: Mapped[str | None] = mapped_column(Text, default=None)
+    seller_reply_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

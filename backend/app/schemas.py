@@ -148,6 +148,8 @@ class ProductView(ProductCreate):
     seller_id: int
     average_rating: float = 0
     review_count: int = 0
+    seller_average_rating: float = 0
+    seller_review_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -173,7 +175,22 @@ class ReviewView(BaseModel):
     rating: int
     comment: str
     author: str
+    seller_name: str | None = None
+    seller_reply: str | None = None
+    seller_reply_at: datetime | None = None
     created_at: datetime
+
+
+class SellerReplyCreate(BaseModel):
+    reply: str = Field(min_length=3, max_length=2000)
+
+    @field_validator("reply")
+    @classmethod
+    def reply_must_contain_text(cls, value: str) -> str:
+        reply = value.strip()
+        if len(reply) < 3:
+            raise ValueError("Javob kamida 3 ta mazmunli belgidan iborat bo‘lishi kerak.")
+        return reply
 
 
 class SalesDay(BaseModel):

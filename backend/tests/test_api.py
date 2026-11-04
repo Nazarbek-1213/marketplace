@@ -309,7 +309,30 @@ class MarketplaceFlowTests(unittest.TestCase):
         my_reviews = self.client.get("/api/reviews/mine", headers=review_headers)
         self.assertEqual(my_reviews.status_code, 200)
         self.assertEqual(len(my_reviews.json()), 1)
-
+        seller_reviews = self.client.get("/api/seller/reviews", headers=seller_headers)
+        self.assertEqual(seller_reviews.status_code, 200, seller_reviews.text)
+        self.assertEqual(seller_reviews.json()[0]["author"], "Ali Valiyev")
+        self.assertEqual(
+            self.client.put(
+                f"/api/seller/reviews/{seller_reviews.json()[0]['id']}/reply",
+                headers=seller_headers,
+                json={"reply": "Fikringiz uchun rahmat!"},
+            ).status_code,
+            200,
+        )
+        public_reviews = self.client.get(f"/api/products/{product['id']}/reviews")
+        self.assertEqual(public_reviews.json()[0]["seller_reply"], "Fikringiz uchun rahmat!")
+        product_details = self.client.get(f"/api/products/{product['id']}")
+        self.assertEqual(product_details.json()["average_rating"], 5)
+        self.assertEqual(product_details.json()["review_count"], 1)
+        self.assertEqual(product_details.json()["seller_average_rating"], 5)
+        self.assertEqual(product_details.json()["seller_review_count"], 1)
+        seller_products = self.client.get(
+            "/api/seller/products",
+            headers=seller_headers,
+        )
+        self.assertEqual(seller_products.json()[0]["average_rating"], 5)
+        self.assertEqual(seller_products.json()[0]["seller_average_rating"], 5)
         for period in ("weekly", "monthly"):
             analytics_response = self.client.get(
                 f"/api/seller/analytics?period={period}",
@@ -332,6 +355,74 @@ class MarketplaceFlowTests(unittest.TestCase):
         self.assertEqual(catalog_response.json()[0]["stock"], 2)
         self.assertEqual(catalog_response.json()[0]["average_rating"], 5)
         self.assertEqual(catalog_response.json()[0]["review_count"], 1)
+        second_product = self.client.post(
+            "/api/seller/products",
+            headers=seller_headers,
+            json={
+                "name": "Telefon g‘ilofi",
+                "description": "Himoya g‘ilofi",
+                "category": "Elektronika",
+                "price": "50000",
+                "stock": 1,
+            },
+        ).json()
+        second_order = self.client.post(
+            "/api/orders",
+            headers=review_headers,
+            json={
+                "delivery_address": "Toshkent, Yunusobod 1-mavze, 1-uy",
+                "items": [{"product_id": second_product["id"], "quantity": 1}],
+            },
+        )
+        self.assertEqual(second_order.status_code, 201, second_order.text)
+        second_review = self.client.post(
+            "/api/reviews",
+            headers=review_headers,
+            json={
+                "product_id": second_product["id"],
+                "rating": 3,
+                "comment": "Yaxshi, lekin o‘rtacha.",
+            },
+        )
+        self.assertEqual(second_review.status_code, 201, second_review.text)
+        first_product_details = self.client.get(f"/api/products/{product['id']}").json()
+        self.assertEqual(first_product_details["average_rating"], 5)
+        self.assertEqual(first_product_details["seller_average_rating"], 4)
+        self.assertEqual(first_product_details["seller_review_count"], 2)
+        seller_products = self.client.get(
+            "/api/seller/products",
+            headers=seller_headers,
+        ).json()
+        ratings_by_product = {item["id"]: item for item in seller_products}
+        self.assertEqual(ratings_by_product[product["id"]]["average_rating"], 5)
+        self.assertEqual(ratings_by_product[second_product["id"]]["average_rating"], 3)
+        self.assertEqual(ratings_by_product[second_product["id"]]["seller_average_rating"], 4)
+        updated_product = self.client.patch(
+            f"/api/seller/products/{product['id']}",
+            headers=seller_headers,
+            json={
+                "name": "Yangilangan quloqchin",
+                "description": "Yangilangan tavsif",
+                "category": "Elektronika",
+                "price": "275000",
+                "stock": 7,
+            },
+        )
+        self.assertEqual(updated_product.status_code, 200, updated_product.text)
+        self.assertEqual(updated_product.json()["description"], "Yangilangan tavsif")
+        self.assertEqual(
+            self.client.patch(
+                f"/api/seller/products/{product['id']}",
+                json={
+                    "name": "Boshqa sotuvchi",
+                    "description": "",
+                    "category": "Elektronika",
+                    "price": "1",
+                    "stock": 1,
+                },
+            ).status_code,
+            401,
+        )
         self.assertEqual(
             self.client.get("/api/categories").json(),
             ["Elektronika"],

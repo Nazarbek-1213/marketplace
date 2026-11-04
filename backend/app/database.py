@@ -37,6 +37,10 @@ _USER_PROFILE_COLUMNS = {
     "birth_date": "DATE",
 }
 _PRODUCT_COLUMNS = {"image_urls": "JSON"}
+_PRODUCT_REVIEW_COLUMNS = {
+    "seller_reply": "TEXT",
+    "seller_reply_at": "TIMESTAMP WITH TIME ZONE",
+}
 
 
 def migrate_user_profile_columns() -> None:
@@ -60,6 +64,15 @@ def migrate_user_profile_columns() -> None:
         connection.exec_driver_sql(
             "UPDATE products SET image_urls = '[]' WHERE image_urls IS NULL"
         )
+        existing_review_columns = {
+            column["name"]
+            for column in inspect(connection).get_columns("product_reviews")
+        }
+        for column_name, column_type in _PRODUCT_REVIEW_COLUMNS.items():
+            if column_name not in existing_review_columns:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE product_reviews ADD COLUMN {column_name} {column_type}"
+                )
 
 
 def get_db() -> Generator[Session, None, None]:

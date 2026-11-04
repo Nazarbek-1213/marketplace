@@ -12,6 +12,8 @@ type Product = {
   stock: number;
   average_rating: number;
   review_count: number;
+  seller_average_rating: number;
+  seller_review_count: number;
 };
 type Tokens = { access_token: string; refresh_token: string };
 type User = {
@@ -51,6 +53,9 @@ type Review = {
   rating: number;
   comment: string;
   author: string;
+  seller_name: string | null;
+  seller_reply: string | null;
+  seller_reply_at: string | null;
   created_at: string;
 };
 type ReviewTarget = { id: number; name: string };
@@ -496,6 +501,7 @@ export default function App() {
                     </button>
                     <h3>{product.name}</h3>
                     <p className="product-description">{product.description || "Sifatli mahsulot — kundalik foydalanish uchun."}</p>
+                    <button className="product-details-button" onClick={() => void showProductReviews(product)}>Tafsilotlar va sharhlar ↗</button>
                     <div className="product-bottom"><strong>{formatPrice(product.price)}</strong>
                       <button aria-label={`${product.name} savatga qo‘shish`} onClick={() => setCart((current) => ({ ...current, [product.id]: Math.min((current[product.id] ?? 0) + 1, product.stock) }))}>+</button>
                     </div>
@@ -604,9 +610,14 @@ export default function App() {
       {reviewsForProduct && <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setReviewsForProduct(null); }}>
         <section className="public-reviews-modal">
           <div className="purchase-modal-heading"><div><span className="eyebrow"><span /> XARIDORLAR FIKRI</span><h2>{reviewsForProduct.name}</h2><p>Mahsulot haqida xaridorlar qoldirgan fikrlar.</p></div><button className="close-button" aria-label="Yopish" onClick={() => setReviewsForProduct(null)}>×</button></div>
+          <div className="product-detail-summary">
+            <div><b>{formatPrice(reviewsForProduct.price)}</b><span>{reviewsForProduct.category} · {reviewsForProduct.stock} ta mavjud</span></div>
+            <div className="product-store-rating"><b>Do‘kon bahosi: ★ {reviewsForProduct.seller_review_count ? reviewsForProduct.seller_average_rating.toFixed(1) : "—"}</b><span>{reviewsForProduct.seller_review_count} ta xaridor bahosi</span></div>
+            <p>{reviewsForProduct.description || "Mahsulot uchun batafsil tavsif kiritilmagan."}</p>
+          </div>
           <div className="public-review-summary"><b>★ {reviewsForProduct.review_count ? reviewsForProduct.average_rating.toFixed(1) : "—"}</b><span>{reviewsForProduct.review_count} ta fikr</span></div>
           {productReviews.length === 0 ? <div className="purchase-empty compact"><span>☆</span><h3>Hali fikrlar yo‘q</h3><p>Bu mahsulotga birinchi bo‘lib fikr bildiring.</p></div> :
-            <div className="public-review-list">{productReviews.map((review) => <article className="public-review" key={review.id}><div><b>{review.author}</b><span>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</span></div><small>{new Date(review.created_at).toLocaleDateString("uz-UZ")}</small><p>{review.comment}</p></article>)}</div>}
+            <div className="public-review-list">{productReviews.map((review) => <article className="public-review" key={review.id}><div><b>{review.author}</b><span>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</span></div><small>{new Date(review.created_at).toLocaleDateString("uz-UZ")}</small><p>{review.comment}</p>{review.seller_reply && <div className="seller-review-reply"><b>{review.seller_name || "Do‘kon"} javobi</b><p>{review.seller_reply}</p></div>}</article>)}</div>}
           <small className="review-verified">Fikr qoldirish uchun avval mahsulotni xarid qiling.</small>
         </section>
       </div>}

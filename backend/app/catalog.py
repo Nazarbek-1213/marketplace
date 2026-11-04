@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.auth import require_role
 from app.config import settings
@@ -24,6 +24,7 @@ from app.schemas import (
     ProductCreate,
     ProductView,
     ReviewCreate,
+    SellerReplyCreate,
     ReviewView,
     SalesDay,
     SellerAnalytics,
@@ -38,6 +39,21 @@ IMAGE_SIGNATURES = {
     "image/png": (b"\x89PNG\r\n\x1a\n", ".png"),
     "image/webp": (b"RIFF", ".webp"),
 }
+
+
+def _seller_review_summary():
+    return (
+        select(
+            Product.seller_id.label("seller_id"),
+            func.coalesce(func.avg(ProductReview.rating), 0).label(
+                "seller_average_rating"
+            ),
+            func.count(ProductReview.id).label("seller_review_count"),
+        )
+        .outerjoin(ProductReview, ProductReview.product_id == Product.id)
+        .group_by(Product.seller_id)
+        .subquery()
+    )
 
 
 def _is_supported_image(content: bytes, content_type: str) -> bool:
@@ -138,16 +154,24 @@ def list_products(
     limit: int = Query(default=24, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-) -> list[Product]:
+) -> list[ProductView]:
+    seller_reviews = _seller_review_summary()
     query = (
         select(
             Product,
             func.coalesce(func.avg(ProductReview.rating), 0).label("average_rating"),
             func.count(ProductReview.id).label("review_count"),
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
         )
         .outerjoin(ProductReview, ProductReview.product_id == Product.id)
+        .outerjoin(seller_reviews, seller_reviews.c.seller_id == Product.seller_id)
         .where(Product.stock > 0)
-        .group_by(Product.id)
+        .group_by(
+            Product.id,
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
+        )
         .order_by(Product.created_at.desc())
     )
     if search:
@@ -159,9 +183,17 @@ def list_products(
             update={
                 "average_rating": float(average_rating),
                 "review_count": review_count,
+                "seller_average_rating": float(seller_average_rating),
+                "seller_review_count": seller_review_count,
             }
         )
-        for product, average_rating, review_count in db.execute(
+        for (
+            product,
+            average_rating,
+            review_count,
+            seller_average_rating,
+            seller_review_count,
+        ) in db.execute(
             query.offset(offset).limit(limit)
         ).all()
     ]
@@ -180,11 +212,42 @@ def list_categories(db: Session = Depends(get_db)) -> list[str]:
 
 
 @router.get("/api/products/{product_id}", response_model=ProductView)
-def get_product(product_id: int, db: Session = Depends(get_db)) -> Product:
-    product = db.get(Product, product_id)
-    if not product or product.stock <= 0:
+def get_product(product_id: int, db: Session = Depends(get_db)) -> ProductView:
+    seller_reviews = _seller_review_summary()
+    row = db.execute(
+        select(
+            Product,
+            func.coalesce(func.avg(ProductReview.rating), 0).label("average_rating"),
+            func.count(ProductReview.id).label("review_count"),
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
+        )
+        .outerjoin(ProductReview, ProductReview.product_id == Product.id)
+        .outerjoin(seller_reviews, seller_reviews.c.seller_id == Product.seller_id)
+        .where(Product.id == product_id, Product.stock > 0)
+        .group_by(
+            Product.id,
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
+        )
+    ).first()
+    if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mahsulot topilmadi.")
-    return product
+    (
+        product,
+        average_rating,
+        review_count,
+        seller_average_rating,
+        seller_review_count,
+    ) = row
+    return ProductView.model_validate(product).model_copy(
+        update={
+            "average_rating": float(average_rating),
+            "review_count": review_count,
+            "seller_average_rating": float(seller_average_rating),
+            "seller_review_count": seller_review_count,
+        }
+    )
 
 
 @router.get(
@@ -197,10 +260,18 @@ def list_product_reviews(
 ) -> list[ReviewView]:
     if not db.get(Product, product_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mahsulot topilmadi.")
+    seller_user = aliased(User)
     rows = db.execute(
-        select(ProductReview, Product.name, User.username)
+        select(
+            ProductReview,
+            Product.name,
+            User.username,
+            User.full_name,
+            seller_user.username,
+        )
         .join(Product, Product.id == ProductReview.product_id)
         .join(User, User.id == ProductReview.user_id)
+        .join(seller_user, seller_user.id == Product.seller_id)
         .where(ProductReview.product_id == product_id)
         .order_by(ProductReview.created_at.desc())
     ).all()
@@ -211,10 +282,13 @@ def list_product_reviews(
             product_name=product_name,
             rating=review.rating,
             comment=review.comment,
-            author=username or "Xaridor",
+            author=full_name or username or "Xaridor",
             created_at=review.created_at,
+            seller_reply=review.seller_reply,
+            seller_reply_at=review.seller_reply_at,
+            seller_name=seller_name,
         )
-        for review, product_name, username in rows
+        for review, product_name, username, full_name, seller_name in rows
     ]
 
 
@@ -223,10 +297,18 @@ def list_my_reviews(
     buyer: User = Depends(require_role("buyer")),
     db: Session = Depends(get_db),
 ) -> list[ReviewView]:
+    seller_user = aliased(User)
     rows = db.execute(
-        select(ProductReview, Product.name, User.username)
+        select(
+            ProductReview,
+            Product.name,
+            User.username,
+            User.full_name,
+            seller_user.username,
+        )
         .join(Product, Product.id == ProductReview.product_id)
         .join(User, User.id == ProductReview.user_id)
+        .join(seller_user, seller_user.id == Product.seller_id)
         .where(ProductReview.user_id == buyer.id)
         .order_by(ProductReview.created_at.desc())
     ).all()
@@ -237,10 +319,13 @@ def list_my_reviews(
             product_name=product_name,
             rating=review.rating,
             comment=review.comment,
-            author=username or "Xaridor",
+            author=full_name or username or "Xaridor",
             created_at=review.created_at,
+            seller_reply=review.seller_reply,
+            seller_reply_at=review.seller_reply_at,
+            seller_name=seller_name,
         )
-        for review, product_name, username in rows
+        for review, product_name, username, full_name, seller_name in rows
     ]
 
 
@@ -312,20 +397,54 @@ def create_product_review(
         product_name=product.name,
         rating=review.rating,
         comment=review.comment,
-        author=buyer.username or "Xaridor",
+        author=buyer.full_name or buyer.username or "Xaridor",
         created_at=review.created_at,
+        seller_name=db.scalar(
+            select(User.username).where(User.id == product.seller_id)
+        ),
     )
 
 
 @router.get("/api/seller/products", response_model=list[ProductView])
 def list_seller_products(
     seller: User = Depends(require_role("seller")), db: Session = Depends(get_db)
-) -> list[Product]:
-    return list(
-        db.scalars(
-            select(Product).where(Product.seller_id == seller.id).order_by(Product.id.desc())
-        ).all()
-    )
+) -> list[ProductView]:
+    seller_reviews = _seller_review_summary()
+    rows = db.execute(
+        select(
+            Product,
+            func.coalesce(func.avg(ProductReview.rating), 0).label("average_rating"),
+            func.count(ProductReview.id).label("review_count"),
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
+        )
+        .outerjoin(ProductReview, ProductReview.product_id == Product.id)
+        .outerjoin(seller_reviews, seller_reviews.c.seller_id == Product.seller_id)
+        .where(Product.seller_id == seller.id)
+        .group_by(
+            Product.id,
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
+        )
+        .order_by(Product.id.desc())
+    ).all()
+    return [
+        ProductView.model_validate(product).model_copy(
+            update={
+                "average_rating": float(average_rating),
+                "review_count": review_count,
+                "seller_average_rating": float(seller_average_rating),
+                "seller_review_count": seller_review_count,
+            }
+        )
+        for (
+            product,
+            average_rating,
+            review_count,
+            seller_average_rating,
+            seller_review_count,
+        ) in rows
+    ]
 
 
 @router.post("/api/seller/products", response_model=ProductView, status_code=201)
@@ -333,7 +452,7 @@ def create_product(
     data: ProductCreate,
     seller: User = Depends(require_role("seller")),
     db: Session = Depends(get_db),
-) -> Product:
+) -> ProductView:
     product = Product(
         seller_id=seller.id,
         name=data.name,
@@ -351,7 +470,137 @@ def create_product(
     db.add(product)
     db.commit()
     db.refresh(product)
-    return product
+    seller_reviews = _seller_review_summary()
+    seller_average_rating, seller_review_count = db.execute(
+        select(
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
+        ).where(seller_reviews.c.seller_id == seller.id)
+    ).one()
+    return ProductView.model_validate(product).model_copy(
+        update={
+            "seller_average_rating": float(seller_average_rating),
+            "seller_review_count": seller_review_count,
+        }
+    )
+
+
+@router.patch("/api/seller/products/{product_id}", response_model=ProductView)
+def update_seller_product(
+    product_id: int,
+    data: ProductCreate,
+    seller: User = Depends(require_role("seller")),
+    db: Session = Depends(get_db),
+) -> Product:
+    product = db.scalar(
+        select(Product).where(
+            Product.id == product_id,
+            Product.seller_id == seller.id,
+        )
+    )
+    if not product:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mahsulot topilmadi.")
+    product.name = data.name
+    product.description = data.description
+    product.category = data.category
+    product.image_url = data.image_urls[0] if data.image_urls else (
+        str(data.image_url) if data.image_url else None
+    )
+    product.image_urls = data.image_urls or (
+        [str(data.image_url)] if data.image_url else []
+    )
+    product.price = data.price
+    product.stock = data.stock
+    db.commit()
+    db.refresh(product)
+    seller_reviews = _seller_review_summary()
+    average_rating, review_count = db.execute(
+        select(
+            func.coalesce(func.avg(ProductReview.rating), 0),
+            func.count(ProductReview.id),
+        ).where(ProductReview.product_id == product.id)
+    ).one()
+    seller_average_rating, seller_review_count = db.execute(
+        select(
+            seller_reviews.c.seller_average_rating,
+            seller_reviews.c.seller_review_count,
+        )
+        .where(seller_reviews.c.seller_id == product.seller_id)
+    ).one()
+    return ProductView.model_validate(product).model_copy(
+        update={
+            "average_rating": float(average_rating),
+            "review_count": review_count,
+            "seller_average_rating": float(seller_average_rating),
+            "seller_review_count": seller_review_count,
+        }
+    )
+
+
+@router.get("/api/seller/reviews", response_model=list[ReviewView])
+def list_seller_reviews(
+    seller: User = Depends(require_role("seller")),
+    db: Session = Depends(get_db),
+) -> list[ReviewView]:
+    rows = db.execute(
+        select(ProductReview, Product.name, User.username, User.full_name)
+        .join(Product, Product.id == ProductReview.product_id)
+        .join(User, User.id == ProductReview.user_id)
+        .where(Product.seller_id == seller.id)
+        .order_by(Product.id, ProductReview.created_at.desc())
+    ).all()
+    return [
+        ReviewView(
+            id=review.id,
+            product_id=review.product_id,
+            product_name=product_name,
+            rating=review.rating,
+            comment=review.comment,
+            author=full_name or username or "Xaridor",
+            created_at=review.created_at,
+            seller_name=seller.username,
+            seller_reply=review.seller_reply,
+            seller_reply_at=review.seller_reply_at,
+        )
+        for review, product_name, username, full_name in rows
+    ]
+
+
+@router.put("/api/seller/reviews/{review_id}/reply", response_model=ReviewView)
+def reply_to_product_review(
+    review_id: int,
+    data: SellerReplyCreate,
+    seller: User = Depends(require_role("seller")),
+    db: Session = Depends(get_db),
+) -> ReviewView:
+    row = db.execute(
+        select(ProductReview, Product.name, User.username, User.full_name)
+        .join(Product, Product.id == ProductReview.product_id)
+        .join(User, User.id == ProductReview.user_id)
+        .where(
+            ProductReview.id == review_id,
+            Product.seller_id == seller.id,
+        )
+    ).first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sharh topilmadi.")
+    review, product_name, username, full_name = row
+    review.seller_reply = data.reply.strip()
+    review.seller_reply_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(review)
+    return ReviewView(
+        id=review.id,
+        product_id=review.product_id,
+        product_name=product_name,
+        rating=review.rating,
+        comment=review.comment,
+        author=full_name or username or "Xaridor",
+        created_at=review.created_at,
+        seller_name=seller.username,
+        seller_reply=review.seller_reply,
+        seller_reply_at=review.seller_reply_at,
+    )
 
 
 @router.get("/api/seller/analytics", response_model=SellerAnalytics)

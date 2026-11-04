@@ -5,6 +5,22 @@ type Product = {
   id: number; seller_id: number; name: string; description: string;
   category: string; image_url: string | null; price: string; stock: number;
   image_urls: string[];
+  average_rating: number;
+  review_count: number;
+  seller_average_rating: number;
+  seller_review_count: number;
+};
+type Review = {
+  id: number;
+  product_id: number;
+  product_name: string;
+  rating: number;
+  comment: string;
+  author: string;
+  seller_name: string | null;
+  seller_reply: string | null;
+  seller_reply_at: string | null;
+  created_at: string;
 };
 type Seller = {
   id: number;
@@ -189,6 +205,9 @@ export default function App() {
   });
   const [seller, setSeller] = useState<Seller | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [replyDrafts, setReplyDrafts] = useState<Record<number, string>>({});
+  const [replyBusyId, setReplyBusyId] = useState<number | null>(null);
   const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>("weekly");
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
@@ -200,6 +219,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [showProductForm, setShowProductForm] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileEditing, setProfileEditing] = useState(false);
@@ -231,6 +251,17 @@ export default function App() {
     setProducts(result);
   }, []);
 
+  const loadReviews = useCallback(async (access: string) => {
+    try {
+      const result = await request<Review[]>("/seller/reviews", {
+        headers: { Authorization: `Bearer ${access}` },
+      });
+      setReviews(result);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Sharhlarni yuklab bo‘lmadi.");
+    }
+  }, []);
+
   const loadAnalytics = useCallback(async (access: string, period: SalesPeriod) => {
     setAnalyticsLoading(true);
     setAnalyticsError("");
@@ -252,13 +283,16 @@ export default function App() {
       .then(async (profile) => {
         if (profile.role !== "seller") throw new Error("Sotuvchi hisobi bilan kiring.");
         setSeller(profile);
-        await loadProducts(tokens.access_token);
+        await Promise.all([
+          loadProducts(tokens.access_token),
+          loadReviews(tokens.access_token),
+        ]);
       })
       .catch(() => {
         setTokens(null);
         localStorage.removeItem("2cbazar_seller_tokens");
       });
-  }, [tokens, loadProducts]);
+  }, [tokens, loadProducts, loadReviews]);
 
   useEffect(() => {
     if (tokens && seller) void loadAnalytics(tokens.access_token, salesPeriod);
@@ -309,13 +343,16 @@ export default function App() {
     }
   };
 
-  const createProduct = async (event: FormEvent) => {
+  const saveProduct = async (event: FormEvent) => {
     event.preventDefault();
     if (!tokens) return;
     setBusy(true);
     setError("");
     try {
-      let imageUrls: string[] = [];
+      const currentProduct = editingProductId === null
+        ? null
+        : products.find((product) => product.id === editingProductId) ?? null;
+      let imageUrls: string[] = currentProduct?.image_urls ?? [];
       if (selectedImages.length > 0) {
         const formData = new FormData();
         selectedImages.forEach((file) => formData.append("files", file));
@@ -326,12 +363,14 @@ export default function App() {
         });
         imageUrls = uploaded.image_urls;
       }
-      await request<Product>("/seller/products", {
-        method: "POST",
+      await request<Product>(
+        editingProductId === null ? "/seller/products" : `/seller/products/${editingProductId}`,
+        {
+        method: editingProductId === null ? "POST" : "PATCH",
         headers: { Authorization: `Bearer ${tokens.access_token}` },
         body: JSON.stringify({
           ...productForm,
-          image_url: imageUrls[0] ?? null,
+          image_url: imageUrls[0] ?? currentProduct?.image_url ?? null,
           image_urls: imageUrls,
           price: Number(productForm.price),
           stock: Number(productForm.stock),
@@ -339,13 +378,49 @@ export default function App() {
       });
       setProductForm({ name: "", category: "Elektronika", description: "", price: "", stock: "1" });
       setSelectedImages([]);
+      setEditingProductId(null);
       setShowProductForm(false);
-      setNotice("Mahsulot do‘koningizga qo‘shildi.");
+      setNotice(editingProductId === null ? "Mahsulot do‘koningizga qo‘shildi." : "Mahsulot ma’lumotlari yangilandi.");
       await loadProducts(tokens.access_token);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Mahsulot qo‘shilmadi.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const openProductForm = (product?: Product) => {
+    setEditingProductId(product?.id ?? null);
+    setProductForm(product ? {
+      name: product.name,
+      category: product.category,
+      description: product.description,
+      price: product.price,
+      stock: String(product.stock),
+    } : { name: "", category: "Elektronika", description: "", price: "", stock: "1" });
+    setSelectedImages([]);
+    setError("");
+    setShowProductForm(true);
+  };
+
+  const sendReviewReply = async (event: FormEvent, review: Review) => {
+    event.preventDefault();
+    if (!tokens) return;
+    setReplyBusyId(review.id);
+    setError("");
+    try {
+      const updated = await request<Review>(`/seller/reviews/${review.id}/reply`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+        body: JSON.stringify({ reply: replyDrafts[review.id] ?? review.seller_reply ?? "" }),
+      });
+      setReviews((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setReplyDrafts((current) => ({ ...current, [review.id]: updated.seller_reply ?? "" }));
+      setNotice("Do‘kon javobi saqlandi.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Javobni saqlab bo‘lmadi.");
+    } finally {
+      setReplyBusyId(null);
     }
   };
 
@@ -473,16 +548,18 @@ export default function App() {
         <a className="side-link active" href="#overview"><span>▦</span> Umumiy ko‘rinish</a>
         <a className="side-link" href="#analytics"><span>⌁</span> Analitika</a>
         <a className="side-link" href="#products"><span>◇</span> Mahsulotlar <small>{products.length}</small></a>
+        <a className="side-link" href="#reviews"><span>★</span> Sharhlar <small>{reviews.length}</small></a>
         <button className="side-link" onClick={() => setNotice("Buyurtmalar bo‘limi keyingi bosqichda yoqiladi.")}><span>▤</span> Buyurtmalar</button>
         <div className="sidebar-bottom"><a className="side-link" href="https://2cnzrbk.uz"><span>↗</span> Marketplace</a><button className="side-link" onClick={() => void logout()}><span>⇥</span> Chiqish</button></div>
       </aside>
       <main className="dashboard-main">
         <header className="dash-header"><div><span className="breadcrumb">Do‘kon /</span> Umumiy ko‘rinish</div><div className="profile-chip"><div className="avatar">{(seller.full_name || seller.username).slice(0, 1).toUpperCase()}</div><div><b>{seller.full_name || seller.username}</b><small>{seller.email}</small></div><button onClick={openProfile} title="Profilni tahrirlash">⌄</button></div></header>
         <div className="dash-content" id="overview">
-          <div className="welcome-row"><div><div className="eyebrow"><span /> SOTUVCHI KABINETI</div><h1>Xush kelibsiz, {seller.username}!</h1><p>Do‘koningizning bugungi holati va mahsulotlarini boshqaring.</p></div><button className="add-button" onClick={() => setShowProductForm(true)}>＋ Mahsulot qo‘shish</button></div>
+          <div className="welcome-row"><div><div className="eyebrow"><span /> SOTUVCHI KABINETI</div><h1>Xush kelibsiz, {seller.username}!</h1><p>Do‘koningizning bugungi holati va mahsulotlarini boshqaring.</p></div><button className="add-button" onClick={() => openProductForm()}>＋ Mahsulot qo‘shish</button></div>
           <div className="stats-grid">
             <div className="stat-card"><div className="stat-top"><span>Jami mahsulotlar</span><i>◇</i></div><strong>{products.length}</strong><small>do‘koningiz katalogida</small></div>
             <div className="stat-card"><div className="stat-top"><span>Ombordagi birliklar</span><i>▤</i></div><strong>{products.reduce((sum, product) => sum + product.stock, 0)}</strong><small>mavjud mahsulotlar</small></div>
+            <div className="stat-card"><div className="stat-top"><span>Do‘kon bahosi</span><i>★</i></div><strong>{reviews.length ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1) : "—"}</strong><small>{reviews.length} ta xaridor bahosi</small></div>
             <div className="stat-card"><div className="stat-top"><span>Do‘kon holati</span><i>◉</i></div><strong className="active-status">Faol</strong><small>mahsulotlaringiz ko‘rinmoqda</small></div>
           </div>
           <section className="analytics-panel" id="analytics">
@@ -520,11 +597,31 @@ export default function App() {
             </div>
           </section>
           <section className="products-panel" id="products">
-            <div className="panel-heading"><div><h2>Mahsulotlaringiz</h2><p>Katalogingizdagi barcha mahsulotlar</p></div><button onClick={() => setShowProductForm(true)}>＋ Yangi mahsulot</button></div>
-            {products.length === 0 ? <div className="product-empty"><div>◇</div><h3>Hali mahsulot qo‘shmadingiz</h3><p>Birinchi mahsulotingizni joylang — xaridorlar uni marketplace’da ko‘rishadi.</p><button className="add-button" onClick={() => setShowProductForm(true)}>Birinchi mahsulotni qo‘shish</button></div> :
-              <div className="table-scroll"><table><thead><tr><th>MAHSULOT</th><th>KATEGORIYA</th><th>NARXI</th><th>OMBOR</th><th>HOLATI</th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><div className="table-product"><div className="table-image">{(product.image_urls?.[0] ?? product.image_url) ? <img src={product.image_urls?.[0] ?? product.image_url ?? undefined} alt="" /> : "2c"}</div><div><b>{product.name}</b><small>#{String(product.id).padStart(5, "0")}{product.image_urls?.length > 1 ? ` · ${product.image_urls.length} ta rasm` : ""}</small></div></div></td><td>{product.category}</td><td><b>{Number(product.price).toLocaleString("uz-UZ")} so‘m</b></td><td>{product.stock} ta</td><td><span className={`status-pill ${product.stock ? "in-stock" : "out-stock"}`}>{product.stock ? "Sotuvda" : "Tugagan"}</span></td></tr>)}</tbody></table></div>}
+            <div className="panel-heading"><div><h2>Mahsulotlaringiz</h2><p>Katalogingizdagi barcha mahsulotlar</p></div><button onClick={() => openProductForm()}>＋ Yangi mahsulot</button></div>
+            {products.length === 0 ? <div className="product-empty"><div>◇</div><h3>Hali mahsulot qo‘shmadingiz</h3><p>Birinchi mahsulotingizni joylang — xaridorlar uni marketplace’da ko‘rishadi.</p><button className="add-button" onClick={() => openProductForm()}>Birinchi mahsulotni qo‘shish</button></div> :
+              <div className="table-scroll"><table><thead><tr><th>MAHSULOT</th><th>KATEGORIYA</th><th>NARXI</th><th>OMBOR</th><th>BAHO / FIKR</th><th>HOLATI</th><th></th></tr></thead><tbody>{products.map((product) => <tr key={product.id}><td><div className="table-product"><div className="table-image">{(product.image_urls?.[0] ?? product.image_url) ? <img src={product.image_urls?.[0] ?? product.image_url ?? undefined} alt="" /> : "2c"}</div><div><b>{product.name}</b><small>#{String(product.id).padStart(5, "0")}{product.image_urls?.length > 1 ? ` · ${product.image_urls.length} ta rasm` : ""}</small></div></div></td><td>{product.category}</td><td><b>{Number(product.price).toLocaleString("uz-UZ")} so‘m</b></td><td>{product.stock} ta</td><td><span className="product-rating">★ {product.review_count ? product.average_rating.toFixed(1) : "—"} <small>({product.review_count})</small></span></td><td><span className={`status-pill ${product.stock ? "in-stock" : "out-stock"}`}>{product.stock ? "Sotuvda" : "Tugagan"}</span></td><td><button className="edit-product-button" onClick={() => openProductForm(product)}>Tahrirlash</button></td></tr>)}</tbody></table></div>}
           </section>
-          <div className="tip-banner"><span>✦</span><div><b>Maslahat</b><p>Mahsulotlaringizga sifatli rasm va batafsil tavsif qo‘shing — xaridorlar ko‘proq ishonch bildiradi.</p></div><button onClick={() => setShowProductForm(true)}>Mahsulot qo‘shish ↗</button></div>
+          <section className="seller-reviews-panel" id="reviews">
+            <div className="panel-heading"><div><h2>Mahsulotlar bo‘yicha sharhlar</h2><p>Har bir mahsulotning bahosi va xaridor fikrlari alohida ko‘rsatiladi.</p></div></div>
+            {products.length === 0 ? <div className="product-empty"><p>Sharhlarni ko‘rish uchun avval mahsulot joylang.</p></div> :
+              <div className="seller-review-products">{products.map((product) => {
+                const productReviews = reviews.filter((review) => review.product_id === product.id);
+                return <section className="seller-review-product" key={product.id}>
+                  <div className="seller-review-product-heading"><div><h3>{product.name}</h3><small>{product.category}</small></div><strong>★ {product.review_count ? product.average_rating.toFixed(1) : "—"} <small>· {product.review_count} ta sharh</small></strong></div>
+                  {productReviews.length === 0 ? <p className="seller-no-reviews">Hozircha bu mahsulotga sharh qoldirilmagan.</p> :
+                    productReviews.map((review) => <article className="seller-review-card" key={review.id}>
+                      <div className="seller-review-card-heading"><b>{review.author}</b><span>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</span></div>
+                      <small>{new Date(review.created_at).toLocaleDateString("uz-UZ")}</small>
+                      <p>{review.comment}</p>
+                      <form onSubmit={(event) => void sendReviewReply(event, review)}>
+                        <label>Do‘kon nomidan javob<textarea required minLength={3} maxLength={2000} rows={2} value={replyDrafts[review.id] ?? review.seller_reply ?? ""} onChange={(event) => setReplyDrafts((current) => ({ ...current, [review.id]: event.target.value }))} placeholder="Xaridoringizga javob yozing..." /></label>
+                        <button className="reply-button" disabled={replyBusyId === review.id}>{replyBusyId === review.id ? "Saqlanmoqda..." : review.seller_reply ? "Javobni yangilash" : "Javob yuborish"}</button>
+                      </form>
+                    </article>)}
+                </section>;
+              })}</div>}
+          </section>
+          <div className="tip-banner"><span>✦</span><div><b>Maslahat</b><p>Mahsulotlaringizga sifatli rasm va batafsil tavsif qo‘shing — xaridorlar ko‘proq ishonch bildiradi.</p></div><button onClick={() => openProductForm()}>Mahsulot qo‘shish ↗</button></div>
         </div>
       </main>
       {profileOpen && <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setProfileOpen(false); }}>
@@ -551,13 +648,13 @@ export default function App() {
           </form>}
         </section>
       </div>}
-      {showProductForm && <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowProductForm(false); }}><form className="product-modal" onSubmit={(event) => void createProduct(event)}><div className="product-modal-head"><div><h2>Yangi mahsulot</h2><p>Mahsulotingiz ma’lumotlarini kiriting.</p></div><button type="button" className="close-button" onClick={() => setShowProductForm(false)}>×</button></div>
+      {showProductForm && <div className="overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowProductForm(false); }}><form className="product-modal" onSubmit={(event) => void saveProduct(event)}><div className="product-modal-head"><div><h2>{editingProductId === null ? "Yangi mahsulot" : "Mahsulotni tahrirlash"}</h2><p>Mahsulotingiz ma’lumotlarini kiriting.</p></div><button type="button" className="close-button" onClick={() => setShowProductForm(false)}>×</button></div>
         <label>Mahsulot nomi<input required minLength={2} maxLength={180} value={productForm.name} onChange={(event) => setProductForm({ ...productForm, name: event.target.value })} placeholder="Masalan, simsiz quloqchin" /></label>
         <div className="form-row"><label>Kategoriya<select value={productForm.category} onChange={(event) => setProductForm({ ...productForm, category: event.target.value })}>{["Elektronika", "Kiyim", "Uy-ro‘zg‘or", "Go‘zallik", "Bolalar", "Sport", "Oziq-ovqat", "Kitoblar", "Avto ehtiyot qismlar", "Boshqa"].map((item) => <option key={item}>{item}</option>)}</select></label><label>Narxi (so‘m)<input type="number" min="1" step="0.01" required value={productForm.price} onChange={(event) => setProductForm({ ...productForm, price: event.target.value })} placeholder="250000" /></label></div>
         <div className="form-row"><label>Ombordagi soni<input type="number" min="0" max="1000000" required value={productForm.stock} onChange={(event) => setProductForm({ ...productForm, stock: event.target.value })} /></label><label className="image-picker">Mahsulot rasmlari <span className="optional">(1–3 ta, har biri 5 MB gacha)</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { selectProductImages(event.target.files); event.target.value = ""; }} /></label></div>
-        {imagePreviews.length > 0 && <div className="image-preview-list">{imagePreviews.map((src, index) => <div className="image-preview" key={src}><img src={src} alt={`Mahsulot rasmi ${index + 1}`} /><button type="button" aria-label={`${index + 1}-rasmni olib tashlash`} onClick={() => setSelectedImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}</div>}
+        {(imagePreviews.length > 0 || (editingProductId !== null && !selectedImages.length)) && <div className="image-preview-list">{imagePreviews.length > 0 ? imagePreviews.map((src, index) => <div className="image-preview" key={src}><img src={src} alt={`Mahsulot rasmi ${index + 1}`} /><button type="button" aria-label={`${index + 1}-rasmni olib tashlash`} onClick={() => setSelectedImages((current) => current.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>) : (products.find((item) => item.id === editingProductId)?.image_urls ?? []).map((src, index) => <div className="image-preview" key={src}><img src={src} alt={`Mahsulot rasmi ${index + 1}`} /></div>)}</div>}
         <label>Tavsif <span className="optional">(ixtiyoriy)</span><textarea rows={3} maxLength={10000} value={productForm.description} onChange={(event) => setProductForm({ ...productForm, description: event.target.value })} placeholder="Mahsulotingiz haqida qisqacha..." /></label>
-        {error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setShowProductForm(false)}>Bekor qilish</button><button className="add-button" disabled={busy}>{busy ? "Saqlanmoqda..." : "Mahsulotni saqlash →"}</button></div>
+        {error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="cancel-button" onClick={() => setShowProductForm(false)}>Bekor qilish</button><button className="add-button" disabled={busy}>{busy ? "Saqlanmoqda..." : editingProductId === null ? "Mahsulotni saqlash →" : "O‘zgarishlarni saqlash →"}</button></div>
       </form></div>}
       {notice && <div className="toast">{notice}<button onClick={() => setNotice("")}>×</button></div>}
       <FregeChat />
