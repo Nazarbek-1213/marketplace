@@ -32,6 +32,8 @@ services:
   marketplace:
     build:
       context: ./frontend/marketplace
+      args:
+        VITE_FREGE_API_KEY: ${VITE_FREGE_API_KEY:-}
     restart: unless-stopped
 
   seller:

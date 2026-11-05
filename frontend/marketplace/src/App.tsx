@@ -59,6 +59,108 @@ type Review = {
   created_at: string;
 };
 type ReviewTarget = { id: number; name: string };
+type FregeEmbed = {
+  setApiKey(apiKey: string): void;
+  mount(options: {
+    el: string;
+    app: string;
+    project: string;
+    stage: string;
+    agent: string;
+  }): void;
+};
+
+declare global {
+  interface Window {
+    Frege?: FregeEmbed;
+  }
+}
+
+let fregeScriptPromise: Promise<void> | null = null;
+
+function loadFregeScript(): Promise<void> {
+  if (window.Frege) return Promise.resolve();
+  if (!fregeScriptPromise) {
+    fregeScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://mcp.frege.uz/v1/embed.js";
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => {
+        fregeScriptPromise = null;
+        reject(new Error("Frege chat skriptini yuklab bo‘lmadi."));
+      };
+      document.head.appendChild(script);
+    });
+  }
+  return fregeScriptPromise;
+}
+
+function FregeChat() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isOpen || initialized) return;
+
+    const apiKey = import.meta.env.VITE_FREGE_API_KEY;
+    if (!apiKey) {
+      setError("Chat sozlanmagan. Root .env fayliga VITE_FREGE_API_KEY kalitini kiriting.");
+      return;
+    }
+
+    let active = true;
+    void loadFregeScript()
+      .then(() => {
+        if (!active) return;
+        if (!window.Frege) throw new Error("Frege chat API mavjud emas.");
+        window.Frege.setApiKey(apiKey);
+        window.Frege.mount({
+          el: "#frege-chat",
+          app: "frege_app_6972c7f8e3409dca72011ec50be369e10f9a08cc0b45484964cb1a9a378a5f11",
+          project: "01a198a1-47c5-7714-b37b-8c1a4f39a431",
+          stage: "live",
+          agent: "01a1aac0-7d1a-78f0-a15b-81ba5e87d88b",
+        });
+        setInitialized(true);
+      })
+      .catch((reason: unknown) => {
+        if (active) {
+          setError(reason instanceof Error ? reason.message : "Frege chatni yuklab bo‘lmadi.");
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialized, isOpen]);
+
+  return (
+    <div className="frege-chat-widget">
+      {isOpen && (
+        <section className="frege-chat-panel" aria-label="Xaridorlar uchun yordam chati">
+          <div className="frege-chat-heading">
+            <strong>Yordam chati</strong>
+            <button type="button" onClick={() => setIsOpen(false)} aria-label="Chatni yopish">×</button>
+          </div>
+          <div id="frege-chat" className="frege-chat">
+            {error && <div className="frege-chat-error" role="status">{error}</div>}
+          </div>
+        </section>
+      )}
+      <button
+        type="button"
+        className="frege-chat-toggle"
+        onClick={() => setIsOpen((open) => !open)}
+        aria-expanded={isOpen}
+        aria-label={isOpen ? "Chatni yopish" : "Yordam chatini ochish"}
+      >
+        {isOpen ? "×" : "Yordam"}
+      </button>
+    </div>
+  );
+}
 
 const API = "/api";
 const defaultCategories = [
@@ -691,6 +793,7 @@ export default function App() {
         </div>
       </div>}
       {notice && <div className="toast">{notice}<button onClick={() => setNotice("")}>×</button></div>}
+      <FregeChat />
     </div>
   );
 }
