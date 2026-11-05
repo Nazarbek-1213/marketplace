@@ -58,6 +58,7 @@ type FregeEmbed = {
   setApiKey(apiKey: string): void;
   mount(options: {
     el: string;
+    app: string;
     project: string;
     stage: string;
     agent: string;
@@ -112,9 +113,10 @@ function FregeChat() {
         window.Frege.setApiKey(apiKey);
         window.Frege.mount({
           el: "#frege-chat",
+          app: "frege_app_4909c03dc67867b06e3a2384ff9aa1199a29a287af83ef5380a613bb0425c629",
           project: "01a198fc-f829-70c7-ad66-434b3f071ece",
-          stage: "staging",
-          agent: "01a19a42-7575-7c8b-bcf9-fd74573a041c",
+          stage: "live",
+          agent: "01a1abf1-e487-7993-ad9d-2e8173d6e0e6",
         });
         setInitialized(true);
       })
