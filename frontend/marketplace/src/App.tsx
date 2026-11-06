@@ -104,9 +104,9 @@ function FregeChat() {
   useEffect(() => {
     if (!isOpen || initialized) return;
 
-    const apiKey = import.meta.env.VITE_FREGE_API_KEY;
+    const apiKey = import.meta.env.VITE_FREGE_MARKETPLACE_API_KEY;
     if (!apiKey) {
-      setError("Chat sozlanmagan. Root .env fayliga VITE_FREGE_API_KEY kalitini kiriting.");
+      setError("Chat sozlanmagan. Root .env fayliga VITE_FREGE_MARKETPLACE_API_KEY kalitini kiriting.");
       return;
     }
 
