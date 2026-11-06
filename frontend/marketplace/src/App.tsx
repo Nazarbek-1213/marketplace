@@ -138,17 +138,19 @@ function FregeChat() {
 
   return (
     <div className="frege-chat-widget">
-      {isOpen && (
-        <section className="frege-chat-panel" aria-label="Xaridorlar uchun yordam chati">
-          <div className="frege-chat-heading">
-            <strong>Yordam chati</strong>
-            <button type="button" onClick={() => setIsOpen(false)} aria-label="Chatni yopish">×</button>
-          </div>
-          <div id="frege-chat" className="frege-chat">
-            {error && <div className="frege-chat-error" role="status">{error}</div>}
-          </div>
-        </section>
-      )}
+      <section
+        className="frege-chat-panel"
+        aria-label="Xaridorlar uchun yordam chati"
+        hidden={!isOpen}
+      >
+        <div className="frege-chat-heading">
+          <strong>Yordam chati</strong>
+          <button type="button" onClick={() => setIsOpen(false)} aria-label="Chatni yopish">×</button>
+        </div>
+        <div id="frege-chat" className="frege-chat">
+          {error && <div className="frege-chat-error" role="status">{error}</div>}
+        </div>
+      </section>
       <button
         type="button"
         className="frege-chat-toggle"

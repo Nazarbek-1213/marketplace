@@ -236,6 +236,7 @@ main{padding:0 5%}
 .frege-chat-toggle{min-width:64px;height:52px;padding:0 18px;border:0;border-radius:26px;background:var(--purple);color:#fff;font-size:13px;font-weight:700;box-shadow:0 8px 24px #6d38dc45}
 .frege-chat-toggle:hover{background:#5928bf}
 .frege-chat-panel{width:min(380px,calc(100vw - 32px));height:min(570px,calc(100vh - 100px));min-height:260px;display:flex;flex-direction:column;overflow:hidden;border:1px solid #eeeaf2;border-radius:16px;background:#fff;box-shadow:0 16px 48px #28174230}
+.frege-chat-panel[hidden]{display:none}
 .frege-chat-heading{height:48px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid #eeeaf2;color:var(--ink);font-size:13px}
 .frege-chat-heading button{width:30px;height:30px;border:0;border-radius:50%;background:#f5f2fa;color:#625777;font-size:20px;line-height:1}
 .frege-chat{flex:1;min-height:0;height:520px}
