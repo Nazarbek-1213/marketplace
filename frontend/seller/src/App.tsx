@@ -53,7 +53,7 @@ type Analytics = {
   daily: { date: string; revenue: string; orders: number; units_sold: number }[];
   top_products: { product_id: number; name: string; units_sold: number; revenue: string }[];
 };
-type AuthMode = "login" | "register";
+type AuthMode = "login" | "register" | "forgot";
 type FregeEmbed = {
   setApiKey(apiKey: string): void;
   mount(options: {
@@ -219,7 +219,9 @@ export default function App() {
   const [code, setCode] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [codeSent, setCodeSent] = useState(false);
+  const [resetCodeSent, setResetCodeSent] = useState(false);
   const [showProductForm, setShowProductForm] = useState(false);
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -340,6 +342,40 @@ export default function App() {
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Ro‘yxatdan o‘tish amalga oshmadi.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetPassword = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      if (!resetCodeSent) {
+        await request("/auth/seller/password-reset/request-code", {
+          method: "POST", body: JSON.stringify({ email }),
+        });
+        setResetCodeSent(true);
+        setNotice("Agar seller hisob mavjud bo‘lsa, tasdiqlash kodi emailingizga yuborildi.");
+      } else {
+        if (password !== confirmPassword) {
+          setError("Parollar bir xil emas.");
+          return;
+        }
+        await request("/auth/seller/password-reset", {
+          method: "POST",
+          body: JSON.stringify({ email, code, password }),
+        });
+        setMode("login");
+        setPassword("");
+        setConfirmPassword("");
+        setCode("");
+        setResetCodeSent(false);
+        setNotice("Parolingiz yangilandi. Yangi parol bilan tizimga kiring.");
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Parolni tiklab bo‘lmadi.");
     } finally {
       setBusy(false);
     }
@@ -515,24 +551,33 @@ export default function App() {
           </section>
           <section className="auth-card">
             <div className="auth-tabs"><button className={mode === "login" ? "selected" : ""} onClick={() => { setMode("login"); setError(""); }}>Kirish</button><button className={mode === "register" ? "selected" : ""} onClick={() => { setMode("register"); setError(""); }}>Ro‘yxatdan o‘tish</button></div>
-            <h2>{mode === "login" ? "Sotuvchi kabinetiga kirish" : codeSent ? "Emailni tasdiqlang" : "O‘z do‘koningizni oching"}</h2>
-            <p className="auth-subtitle">{mode === "login" ? "Username va parolingizni kiriting." : codeSent ? `${email} manziliga yuborilgan kodni va hisob ma’lumotlarini kiriting.` : "Email manzilingiz bilan boshlang — bir necha daqiqada tayyor."}</p>
-            <form onSubmit={(event) => void (mode === "login" ? login(event) : register(event))}>
+            <h2>{mode === "login" ? "Sotuvchi kabinetiga kirish" : mode === "forgot" ? resetCodeSent ? "Yangi parol o‘rnating" : "Parolni tiklash" : codeSent ? "Emailni tasdiqlang" : "O‘z do‘koningizni oching"}</h2>
+            <p className="auth-subtitle">{mode === "login" ? "Username va parolingizni kiriting." : mode === "forgot" ? resetCodeSent ? `${email} manziliga yuborilgan kodni kiriting va yangi parol o‘rnating.` : "Ro‘yxatdan o‘tgan emailingizga tasdiqlash kodi yuboramiz." : codeSent ? `${email} manziliga yuborilgan kodni va hisob ma’lumotlarini kiriting.` : "Email manzilingiz bilan boshlang — bir necha daqiqada tayyor."}</p>
+            <form onSubmit={(event) => void (mode === "login" ? login(event) : mode === "register" ? register(event) : resetPassword(event))}>
               {mode === "login" ? <>
                 <label>Username<div className="input-wrap"><span>@</span><input required autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="username" /></div></label>
                 <label>Parol<input type="password" required autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Kamida 10 belgi" /></label>
-              </> : <>
+              </> : mode === "register" ? <>
                 {!codeSent ? <label>Email manzili<input type="email" required autoFocus value={email} onChange={(event) => setEmail(event.target.value)} placeholder="siz@example.com" /> </label> :
                   <>
                     <label>Email tasdiqlash kodi<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} placeholder="000000" /></label>
                     <label>Username<div className="input-wrap"><span>@</span><input required minLength={3} maxLength={32} pattern="[a-zA-Z0-9_]+" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="shop_username" /></div></label>
                     <label>Yangi parol<input type="password" required minLength={10} maxLength={128} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Kamida 10 belgi" /></label>
                   </>}
+              </> : <>
+                {!resetCodeSent ? <label>Email manzili<input type="email" required autoFocus value={email} onChange={(event) => setEmail(event.target.value)} placeholder="siz@example.com" /></label> :
+                  <>
+                    <label>Email tasdiqlash kodi<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} placeholder="000000" /></label>
+                    <label>Yangi parol<input type="password" required minLength={10} maxLength={128} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Kamida 10 belgi" /></label>
+                    <label>Yangi parolni qayta kiriting<input type="password" required minLength={10} maxLength={128} autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Parolni takrorlang" /></label>
+                  </>}
               </>}
               {error && <div className="form-error">{error}</div>}
-              <button className="submit-button" disabled={busy}>{busy ? "Kuting..." : mode === "login" ? "Kabinetga kirish →" : codeSent ? "Tasdiqlash va do‘kon ochish →" : "Emailga kod yuborish →"}</button>
+              <button className="submit-button" disabled={busy}>{busy ? "Kuting..." : mode === "login" ? "Kabinetga kirish →" : mode === "forgot" ? resetCodeSent ? "Parolni yangilash →" : "Emailga kod yuborish →" : codeSent ? "Tasdiqlash va do‘kon ochish →" : "Emailga kod yuborish →"}</button>
             </form>
+            {mode === "login" && <button className="resend" onClick={() => { setMode("forgot"); setError(""); setResetCodeSent(false); setCode(""); setPassword(""); setConfirmPassword(""); }}>Parolni unutdingizmi?</button>}
             {mode === "register" && codeSent && <button className="resend" onClick={() => { setCodeSent(false); setCode(""); }}>Boshqa email kiritish</button>}
+            {mode === "forgot" && resetCodeSent && <button className="resend" onClick={() => { setResetCodeSent(false); setCode(""); setPassword(""); setConfirmPassword(""); }}>Boshqa email kiritish</button>}
             <div className="auth-help">Savollaringiz bormi? <a href="mailto:help@2cnzrbk.uz">Biz bilan bog‘laning</a></div>
             <a className="back-market" href="https://2cnzrbk.uz">← 2cbazar xaridorlar saytiga qaytish</a>
           </section>

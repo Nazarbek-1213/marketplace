@@ -37,6 +37,10 @@ class SellerRegistration(EmailVerify):
     password: str = Field(min_length=10, max_length=128)
 
 
+class SellerPasswordReset(EmailVerify):
+    password: str = Field(min_length=10, max_length=128)
+
+
 class SellerLogin(BaseModel):
     username: str = Field(min_length=3, max_length=32)
     password: str = Field(min_length=1, max_length=128)

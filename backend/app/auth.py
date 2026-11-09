@@ -16,6 +16,7 @@ from app.schemas import (
     EmailVerify,
     RefreshRequest,
     SellerLogin,
+    SellerPasswordReset,
     SellerRegistration,
     TokenPair,
     UserProfileUpdate,
@@ -186,6 +187,47 @@ def login_seller(data: SellerLogin, db: Session = Depends(get_db)) -> TokenPair:
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Username yoki parol noto‘g‘ri.")
     return _issue_tokens(db, user)
+
+
+@router.post("/seller/password-reset/request-code", status_code=202)
+def request_seller_password_reset_code(
+    data: EmailRequest, db: Session = Depends(get_db)
+) -> dict[str, str]:
+    email = str(data.email).lower()
+    user = db.scalar(
+        select(User).where(User.email == email, User.role == "seller")
+    )
+    if user:
+        try:
+            _send_code(db, email, "seller_password_reset")
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+                raise
+    return {"message": "Agar seller hisob mavjud bo‘lsa, tasdiqlash kodi emailingizga yuborildi."}
+
+
+@router.post("/seller/password-reset")
+def reset_seller_password(
+    data: SellerPasswordReset, db: Session = Depends(get_db)
+) -> dict[str, str]:
+    email = str(data.email).lower()
+    _verify_code(db, email, data.code, "seller_password_reset")
+    user = db.scalar(
+        select(User).where(User.email == email, User.role == "seller")
+    )
+    if not user:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Kod yaroqsiz yoki muddati tugagan.")
+    user.password_hash = hash_secret(data.password)
+    db.execute(
+        update(RefreshSession)
+        .where(
+            RefreshSession.user_id == user.id,
+            RefreshSession.revoked_at.is_(None),
+        )
+        .values(revoked_at=utcnow())
+    )
+    db.commit()
+    return {"message": "Parolingiz yangilandi. Yangi parol bilan tizimga kiring."}
 
 
 @router.post("/refresh", response_model=TokenPair)

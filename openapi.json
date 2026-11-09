@@ -339,6 +339,137 @@
         "x-frege-auth-op": true
       }
     },
+    "/api/auth/seller/password-reset/request-code": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Request a seller password reset code",
+        "operationId": "request_seller_password_reset_code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailRequest"
+              },
+              "examples": {
+                "seller_email": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "email": "seller@example.com"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted whether or not a seller account exists; this avoids disclosing account existence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/503"
+          }
+        },
+        "description": "Send the seller account email. If a seller account exists, a single-use six-digit code is sent to that email. The response is intentionally the same for unknown emails. Codes expire in 10 minutes and allow five attempts; wait one minute between requests.",
+        "security": [],
+        "parameters": []
+      }
+    },
+    "/api/auth/seller/password-reset": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Reset a seller password",
+        "operationId": "reset_seller_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SellerPasswordReset"
+              },
+              "examples": {
+                "password_reset": {
+                  "summary": "Illustrative only; replace with your actual values.",
+                  "value": {
+                    "email": "seller@example.com",
+                    "code": "123456",
+                    "password": "new-example-password-123"
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Password changed. Existing refresh tokens are revoked; sign in using the new password.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "description": "Send the same email, valid six-digit reset code, and new password (10-128 characters). No token or Authorization header is needed. The reset code is single-use; successful reset revokes all refresh tokens for the seller.",
+        "security": [],
+        "parameters": []
+      }
+    },
     "/api/auth/refresh": {
       "post": {
         "tags": [
@@ -1989,6 +2120,37 @@
           "password"
         ],
         "title": "SellerLogin"
+      },
+      "SellerPasswordReset": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email",
+            "description": "Exact seller email address to which the password reset code was sent."
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$",
+            "title": "Code",
+            "description": "Single-use six-digit password reset code from email."
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 10,
+            "title": "Password",
+            "description": "New seller password, 10-128 characters.",
+            "format": "password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "code",
+          "password"
+        ],
+        "title": "SellerPasswordReset"
       },
       "SellerRegistration": {
         "properties": {

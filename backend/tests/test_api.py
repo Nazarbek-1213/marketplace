@@ -450,6 +450,74 @@ class MarketplaceFlowTests(unittest.TestCase):
         )
         self.assertEqual(malformed.status_code, 401)
 
+    def test_seller_password_reset_updates_password_and_revokes_refresh_tokens(self) -> None:
+        email = "reset@example.com"
+        registration_code = self._verify_email(email, "seller")
+        registration = self.client.post(
+            "/api/auth/seller/register",
+            json={
+                "email": email,
+                "code": registration_code,
+                "username": "reset_shop",
+                "password": "secure-password-123",
+            },
+        )
+        self.assertEqual(registration.status_code, 201, registration.text)
+        original_refresh_token = registration.json()["refresh_token"]
+
+        missing_account = self.client.post(
+            "/api/auth/seller/password-reset/request-code",
+            json={"email": "unknown@example.com"},
+        )
+        self.assertEqual(missing_account.status_code, 202)
+        self.assertNotIn("unknown@example.com", self.codes)
+
+        reset_request = self.client.post(
+            "/api/auth/seller/password-reset/request-code",
+            json={"email": email},
+        )
+        self.assertEqual(reset_request.status_code, 202, reset_request.text)
+        reset_code = self.codes[email]
+        reset = self.client.post(
+            "/api/auth/seller/password-reset",
+            json={
+                "email": email,
+                "code": "000000" if reset_code != "000000" else "000001",
+                "password": "new-secure-password-456",
+            },
+        )
+        self.assertEqual(reset.status_code, 400)
+        reset = self.client.post(
+            "/api/auth/seller/password-reset",
+            json={
+                "email": email,
+                "code": reset_code,
+                "password": "new-secure-password-456",
+            },
+        )
+        self.assertEqual(reset.status_code, 200, reset.text)
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/seller/login",
+                json={"username": "reset_shop", "password": "secure-password-123"},
+            ).status_code,
+            401,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/seller/login",
+                json={"username": "reset_shop", "password": "new-secure-password-456"},
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/auth/refresh",
+                json={"refresh_token": original_refresh_token},
+            ).status_code,
+            401,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
